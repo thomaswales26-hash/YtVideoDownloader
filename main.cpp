@@ -102,6 +102,11 @@ public:
         isoRow->addWidget(chooseIso);
         form->addRow("Installer image", isoRow);
 
+        installerArchitectureNote_ = new QLabel;
+        installerArchitectureNote_->setObjectName("note");
+        installerArchitectureNote_->setWordWrap(true);
+        form->addRow("", installerArchitectureNote_);
+
         bootInstallerInput_ = new QCheckBox("Boot from installer ISO");
         bootInstallerInput_->setChecked(true);
         form->addRow("", bootInstallerInput_);
@@ -213,6 +218,7 @@ public:
 
         loadSettings();
         updateGuestArchitectureForInstaller();
+        updateInstallerArchitectureNote();
         updateWindowsOptions();
         connect(nameInput_, &QLineEdit::textChanged, this, [this](const QString &name) {
             if (!diskPathTouched_)
@@ -225,8 +231,10 @@ public:
             updateWindowsOptions();
             saveSettings();
         });
-        connect(architectureInput_, &QComboBox::currentIndexChanged,
-                this, [this] { saveSettings(); });
+        connect(architectureInput_, &QComboBox::currentIndexChanged, this, [this] {
+            updateInstallerArchitectureNote();
+            saveSettings();
+        });
         connect(memoryInput_, &QSpinBox::valueChanged, this, [this] { saveSettings(); });
         connect(coresInput_, &QSpinBox::valueChanged, this, [this] { saveSettings(); });
         connect(diskSizeInput_, &QSpinBox::valueChanged, this, [this] { saveSettings(); });
@@ -463,17 +471,45 @@ private:
 
     void updateGuestArchitectureForInstaller() {
         const QString detected = detectInstallerArchitecture(isoInput_->text());
-        if (detected.isEmpty() || architectureInput_->currentData().toString() == detected)
+        if (detected.isEmpty()) {
+            updateInstallerArchitectureNote();
             return;
+        }
 
-        architectureInput_->setCurrentIndex(architectureInput_->findData(detected));
-        saveSettings();
-        const QString label = detected == "aarch64" ? "ARM64" : "x86_64";
-        appendOutput(QString("Detected a %1 installer ISO and selected the matching %1 guest.")
-                         .arg(label));
+        if (architectureInput_->currentData().toString() != detected) {
+            architectureInput_->setCurrentIndex(architectureInput_->findData(detected));
+            saveSettings();
+            const QString label = detected == "aarch64" ? "ARM64" : "x86_64";
+            appendOutput(QString("Detected a %1 installer ISO and selected the matching %1 guest.")
+                             .arg(label));
+        }
+        updateInstallerArchitectureNote();
+    }
+
+    void updateInstallerArchitectureNote() {
+        const QString detected = detectInstallerArchitecture(isoInput_->text());
+        if (detected.isEmpty()) {
+            installerArchitectureNote_->setText(
+                "Choose a Windows installer image that matches the selected guest architecture.");
+            return;
+        }
+
+        const QString isoArchitecture = detected == "aarch64" ? "ARM64" : "x64";
+        const QString guestArchitecture =
+            architectureInput_->currentData().toString() == "aarch64" ? "ARM64" : "x64";
+        if (detected != architectureInput_->currentData().toString()) {
+            installerArchitectureNote_->setText(
+                QString("Architecture mismatch: this is a %1 Windows ISO, but the selected guest is "
+                        "%2. Select a %2 Windows ISO or change the guest architecture.")
+                    .arg(isoArchitecture, guestArchitecture));
+            return;
+        }
+
+        QString message = QString("Detected %1 Windows installer; guest architecture is %1.")
+                              .arg(isoArchitecture);
         if (detected == "x86_64" && hostArchitecture() == "aarch64")
-            appendOutput("x86_64 Windows will run under software emulation on Apple Silicon and may be very slow. "
-                         "Use an ARM64 Windows installer for better performance.");
+            message += " x64 runs under slower software emulation on Apple Silicon.";
+        installerArchitectureNote_->setText(message);
     }
 
     void setDiskPath(const QString &path) {
@@ -556,11 +592,15 @@ private:
         if (bootInstallerInput_->isChecked()) {
             const QString detected = detectInstallerArchitecture(iso.absoluteFilePath());
             if (!detected.isEmpty() && detected != architectureInput_->currentData().toString()) {
-                updateGuestArchitectureForInstaller();
-                QMessageBox::information(
-                    this, "Guest architecture updated",
-                    "The installer image architecture did not match the selected guest. "
-                    "VM Studio selected the matching architecture; select Create & Start again.");
+                updateInstallerArchitectureNote();
+                QMessageBox::warning(
+                    this, "Windows installer architecture mismatch",
+                    QString("This ISO is %1, but the selected guest is %2. Windows cannot install "
+                            "from an ISO for a different CPU architecture. Choose a matching ISO "
+                            "or guest architecture.")
+                        .arg(detected == "aarch64" ? "ARM64" : "x64",
+                             architectureInput_->currentData().toString() == "aarch64"
+                                 ? "ARM64" : "x64"));
                 return;
             }
         }
@@ -919,6 +959,7 @@ private:
     QComboBox *osInput_ = nullptr;
     QComboBox *architectureInput_ = nullptr;
     QLineEdit *isoInput_ = nullptr;
+    QLabel *installerArchitectureNote_ = nullptr;
     QCheckBox *bootInstallerInput_ = nullptr;
     QCheckBox *tpmInput_ = nullptr;
     QCheckBox *secureBootInput_ = nullptr;
