@@ -32,8 +32,8 @@ class VmStudioWindow final : public QWidget {
 public:
     VmStudioWindow() {
         setWindowTitle("VM Studio");
-        setMinimumSize(640, 680);
-        resize(760, 800);
+        setMinimumSize(680, 760);
+        resize(800, 900);
 
         auto *layout = new QVBoxLayout(this);
         layout->setContentsMargins(32, 28, 32, 28);
@@ -126,9 +126,7 @@ public:
         diskSizeInput_->setRange(8, 1024);
         diskSizeInput_->setValue(64);
         diskSizeInput_->setSuffix(" GiB");
-        form->addRow("Disk capacity", diskSizeInput_);
 
-        auto *resourcesRow = new QHBoxLayout;
         memoryInput_ = new QSpinBox;
         memoryInput_->setRange(1, 128);
         memoryInput_->setValue(4);
@@ -137,13 +135,6 @@ public:
         coresInput_->setRange(1, 32);
         coresInput_->setValue(4);
         coresInput_->setSuffix(" cores");
-        resourcesRow->addWidget(new QLabel("Memory"));
-        resourcesRow->addWidget(memoryInput_);
-        resourcesRow->addSpacing(12);
-        resourcesRow->addWidget(new QLabel("CPU"));
-        resourcesRow->addWidget(coresInput_);
-        resourcesRow->addStretch();
-        form->addRow("Resources", resourcesRow);
         settingsLayout->addWidget(card);
 
         auto *note = new QLabel(architectureNote());
@@ -153,6 +144,18 @@ public:
         settingsLayout->addStretch();
         settingsScroll->setWidget(settingsContent);
         layout->addWidget(settingsScroll, 1);
+
+        auto *resourcesCard = new QFrame;
+        resourcesCard->setObjectName("card");
+        auto *resourcesForm = new QFormLayout(resourcesCard);
+        resourcesForm->setContentsMargins(18, 12, 18, 12);
+        resourcesForm->setHorizontalSpacing(16);
+        resourcesForm->setVerticalSpacing(8);
+        resourcesForm->setLabelAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+        resourcesForm->addRow("Disk capacity (maximum)", diskSizeInput_);
+        resourcesForm->addRow("Memory (while VM runs)", memoryInput_);
+        resourcesForm->addRow("CPU cores", coresInput_);
+        layout->addWidget(resourcesCard);
 
         status_ = new QLabel("Ready to create a virtual machine");
         status_->setObjectName("status");
@@ -171,8 +174,8 @@ public:
         output_ = new QTextEdit;
         output_->setReadOnly(true);
         output_->setPlaceholderText("Virtual machine startup messages will appear here.");
-        output_->setMinimumHeight(90);
-        output_->setMaximumHeight(150);
+        output_->setMinimumHeight(65);
+        output_->setMaximumHeight(95);
         layout->addWidget(output_);
 
         loadSettings();

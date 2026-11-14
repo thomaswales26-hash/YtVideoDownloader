@@ -31,4 +31,4 @@ bash scripts/package_macos.sh
 bash scripts/create_installer_pkg.sh
 ```
 
-The installer is written to `build/VMStudio-1.0.1.pkg` and installs the app to `/Applications`. It is unsigned; distribution outside your own machine requires signing and notarization with an Apple Developer ID.
+The installer is written to `build/VMStudio-1.0.2.pkg` and installs the app to `/Applications`. It is unsigned; distribution outside your own machine requires signing and notarization with an Apple Developer ID.
