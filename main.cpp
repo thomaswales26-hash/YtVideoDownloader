@@ -115,16 +115,15 @@ public:
         form->addRow("", secureBootInput_);
 
         auto *secureBootNote = new QLabel(
-            "Homebrew QEMU does not bundle UEFI firmware. Select matching Secure-Boot-capable "
-            "code and variables files for the guest architecture; the variables template must "
-            "have Microsoft keys enrolled for Windows.");
+            "Secure Boot firmware with Microsoft 2023 keys is bundled for both architectures. "
+            "The firmware fields below are optional overrides.");
         secureBootNote->setWordWrap(true);
         secureBootNote->setObjectName("note");
         form->addRow("", secureBootNote);
 
         auto *secureCodeRow = new QHBoxLayout;
         secureCodeInput_ = new QLineEdit;
-        secureCodeInput_->setPlaceholderText("Select Secure-Boot-capable firmware code");
+        secureCodeInput_->setPlaceholderText("Bundled firmware (or select an override)");
         secureCodeInput_->setReadOnly(true);
         auto *chooseSecureCode = new QPushButton("Browse…");
         secureCodeRow->addWidget(secureCodeInput_, 1);
@@ -133,7 +132,7 @@ public:
 
         auto *secureVarsRow = new QHBoxLayout;
         secureVarsInput_ = new QLineEdit;
-        secureVarsInput_->setPlaceholderText("Select matching UEFI variables template");
+        secureVarsInput_->setPlaceholderText("Bundled Microsoft 2023 keys (or select an override)");
         secureVarsInput_->setReadOnly(true);
         auto *chooseSecureVars = new QPushButton("Browse…");
         secureVarsRow->addWidget(secureVarsInput_, 1);
@@ -564,19 +563,19 @@ private:
             if (paths.first.isEmpty()) {
                 QMessageBox::critical(
                     this, "Secure Boot firmware not found",
-                    "Homebrew's QEMU package does not include UEFI firmware. Install matching "
-                    "Secure-Boot-capable firmware code and a variables template for the selected "
-                    "architecture, then choose both files in the Secure Boot fields.");
+                    "The bundled Secure Boot firmware is missing. Reinstall the app or select matching "
+                    "Secure-Boot-capable firmware code and a Microsoft-key-enrolled variables "
+                    "template for the selected architecture.");
                 return;
             }
             const QFileInfo codeInfo(paths.first);
             const QFileInfo varsInfo(paths.second);
             if (!codeInfo.isReadable() || !varsInfo.isReadable()
-                || codeInfo.size() == 0 || codeInfo.size() != varsInfo.size()) {
+                || codeInfo.size() == 0 || varsInfo.size() == 0) {
                 QMessageBox::critical(
                     this, "Invalid Secure Boot firmware",
                     "The selected firmware code and variable template must both exist, be readable, "
-                    "and have matching non-zero sizes.");
+                    "and be non-empty.");
                 return;
             }
             secureCodePath_ = paths.first;
@@ -632,6 +631,21 @@ private:
     }
 
     QPair<QString, QString> secureBootFirmware(const QString &architecture) const {
+        const QString resources = QDir(QCoreApplication::applicationDirPath())
+                                      .filePath("../Resources/firmware");
+        const QList<QPair<QString, QString>> bundledPairs = architecture == "aarch64"
+            ? QList<QPair<QString, QString>>{
+                  {QDir(resources).filePath("aarch64/AAVMF_CODE.secboot.fd"),
+                   QDir(resources).filePath("aarch64/AAVMF_VARS.ms.fd")}}
+            : QList<QPair<QString, QString>>{
+                  {QDir(resources).filePath("x86_64/OVMF_CODE.secboot.fd"),
+                   QDir(resources).filePath("x86_64/OVMF_VARS.ms.fd")}};
+        for (const auto &firmwarePair : bundledPairs) {
+            if (QFileInfo(firmwarePair.first).isReadable()
+                && QFileInfo(firmwarePair.second).isReadable())
+                return firmwarePair;
+        }
+
         const QStringList directories = {
             "/opt/homebrew/share/qemu",
             "/usr/local/share/qemu",
@@ -640,24 +654,18 @@ private:
         };
         const QList<QPair<QString, QString>> firmwarePairs = architecture == "aarch64"
             ? QList<QPair<QString, QString>>{
-                  {"edk2-aarch64-secure-code.fd", "edk2-aarch64-secure-vars.fd"},
-                  {"edk2-aarch64-secure-code.fd", "edk2-aarch64-vars.fd"},
+                  {"AAVMF_CODE.secboot.fd", "AAVMF_VARS.ms.fd"},
                   {"AAVMF_CODE.ms.fd", "AAVMF_VARS.ms.fd"},
-                  {"AAVMF_CODE.secboot.fd", "AAVMF_VARS.secboot.fd"}}
+                  {"edk2-aarch64-secure-code.fd", "edk2-aarch64-secure-vars.fd"}}
             : QList<QPair<QString, QString>>{
-                  {"edk2-x86_64-secure-code.fd", "edk2-x86_64-secure-vars.fd"},
-                  {"edk2-x86_64-secure-code.fd", "edk2-x86_64-vars.fd"},
-                  {"edk2-x86_64-code.secboot.fd", "edk2-x86_64-vars.secboot.fd"},
+                  {"OVMF_CODE_4M.secboot.fd", "OVMF_VARS_4M.ms.fd"},
                   {"OVMF_CODE.secboot.fd", "OVMF_VARS.ms.fd"},
-                  {"OVMF_CODE.secboot.fd", "OVMF_VARS.secboot.fd"},
-                  {"OVMF_CODE.secboot.4m.fd", "OVMF_VARS.ms.fd"},
-                  {"OVMF_CODE.secboot.4m.fd", "OVMF_VARS.secboot.fd"}};
+                  {"edk2-x86_64-secure-code.fd", "edk2-x86_64-secure-vars.fd"}};
         for (const QString &directory : directories) {
             for (const auto &firmwarePair : firmwarePairs) {
                 const QString codePath = QDir(directory).filePath(firmwarePair.first);
                 const QString varsPath = QDir(directory).filePath(firmwarePair.second);
-                if (QFileInfo(codePath).isReadable() && QFileInfo(varsPath).isReadable()
-                    && QFileInfo(codePath).size() == QFileInfo(varsPath).size())
+                if (QFileInfo(codePath).isReadable() && QFileInfo(varsPath).isReadable())
                     return {codePath, varsPath};
             }
         }

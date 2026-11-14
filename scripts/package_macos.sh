@@ -24,6 +24,7 @@ if [[ ! -x "$MACDEPLOYQT" ]]; then
 fi
 
 "$MACDEPLOYQT" "$APP"
+bash "$ROOT/scripts/bundle_secure_boot_firmware.sh" "$APP/Contents/Resources/firmware"
 
 codesign --force --deep --sign - "$APP"
 codesign --verify --deep --strict "$APP"
