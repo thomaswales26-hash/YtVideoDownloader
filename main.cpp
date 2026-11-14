@@ -17,6 +17,7 @@
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QSettings>
+#include <QScrollArea>
 #include <QSpinBox>
 #include <QStandardPaths>
 #include <QTemporaryDir>
@@ -31,8 +32,8 @@ class VmStudioWindow final : public QWidget {
 public:
     VmStudioWindow() {
         setWindowTitle("VM Studio");
-        setMinimumSize(680, 680);
-        resize(760, 760);
+        setMinimumSize(640, 680);
+        resize(760, 800);
 
         auto *layout = new QVBoxLayout(this);
         layout->setContentsMargins(32, 28, 32, 28);
@@ -57,6 +58,15 @@ public:
         subtitle->setObjectName("subtitle");
         subtitle->setWordWrap(true);
         layout->addWidget(subtitle);
+
+        auto *settingsScroll = new QScrollArea;
+        settingsScroll->setObjectName("settingsScroll");
+        settingsScroll->setWidgetResizable(true);
+        settingsScroll->setFrameShape(QFrame::NoFrame);
+        auto *settingsContent = new QWidget;
+        auto *settingsLayout = new QVBoxLayout(settingsContent);
+        settingsLayout->setContentsMargins(0, 0, 0, 0);
+        settingsLayout->setSpacing(14);
 
         auto *card = new QFrame;
         card->setObjectName("card");
@@ -105,9 +115,11 @@ public:
 
         auto *diskRow = new QHBoxLayout;
         diskInput_ = new QLineEdit(defaultDiskPath());
-        auto *chooseDisk = new QPushButton("Browse…");
+        auto *chooseDisk = new QPushButton("Select…");
+        auto *createDisk = new QPushButton("New…");
         diskRow->addWidget(diskInput_, 1);
         diskRow->addWidget(chooseDisk);
+        diskRow->addWidget(createDisk);
         form->addRow("Virtual disk", diskRow);
 
         diskSizeInput_ = new QSpinBox;
@@ -132,12 +144,15 @@ public:
         resourcesRow->addWidget(coresInput_);
         resourcesRow->addStretch();
         form->addRow("Resources", resourcesRow);
-        layout->addWidget(card);
+        settingsLayout->addWidget(card);
 
         auto *note = new QLabel(architectureNote());
         note->setObjectName("note");
         note->setWordWrap(true);
-        layout->addWidget(note);
+        settingsLayout->addWidget(note);
+        settingsLayout->addStretch();
+        settingsScroll->setWidget(settingsContent);
+        layout->addWidget(settingsScroll, 1);
 
         status_ = new QLabel("Ready to create a virtual machine");
         status_->setObjectName("status");
@@ -156,8 +171,9 @@ public:
         output_ = new QTextEdit;
         output_->setReadOnly(true);
         output_->setPlaceholderText("Virtual machine startup messages will appear here.");
-        output_->setMinimumHeight(120);
-        layout->addWidget(output_, 1);
+        output_->setMinimumHeight(90);
+        output_->setMaximumHeight(150);
+        layout->addWidget(output_);
 
         loadSettings();
         updateWindowsOptions();
@@ -185,20 +201,43 @@ public:
             saveSettings();
         });
         connect(chooseIso, &QPushButton::clicked, this, [this] {
-            const QString path = QFileDialog::getOpenFileName(
-                this, "Choose operating system installer", QDir::homePath(),
-                "ISO images (*.iso);;All files (*)");
-            if (!path.isEmpty())
-                isoInput_->setText(path);
+            QFileDialog dialog(this, "Choose operating system installer", QDir::homePath());
+            dialog.setOption(QFileDialog::DontUseNativeDialog);
+            dialog.setFileMode(QFileDialog::ExistingFile);
+            dialog.setAcceptMode(QFileDialog::AcceptOpen);
+            dialog.setNameFilters({"ISO images (*.iso)", "All files (*)"});
+            if (dialog.exec() == QDialog::Accepted && !dialog.selectedFiles().isEmpty())
+                isoInput_->setText(QFileInfo(dialog.selectedFiles().first()).absoluteFilePath());
         });
         connect(chooseDisk, &QPushButton::clicked, this, [this] {
-            const QString path = QFileDialog::getSaveFileName(
-                this, "Choose virtual disk", diskInput_->text(),
-                "QEMU disk images (*.qcow2)");
-            if (!path.isEmpty()) {
-                diskPathTouched_ = true;
-                diskInput_->setText(path);
+            QFileDialog dialog(this, "Select existing virtual disk",
+                               existingDirectoryForPath(diskInput_->text()));
+            dialog.setOption(QFileDialog::DontUseNativeDialog);
+            dialog.setFileMode(QFileDialog::ExistingFile);
+            dialog.setAcceptMode(QFileDialog::AcceptOpen);
+            dialog.setNameFilter("QEMU virtual disks (*.qcow2)");
+            if (dialog.exec() == QDialog::Accepted && !dialog.selectedFiles().isEmpty())
+                setDiskPath(QFileInfo(dialog.selectedFiles().first()).absoluteFilePath());
+        });
+        connect(createDisk, &QPushButton::clicked, this, [this] {
+            QFileDialog dialog(this, "Create a new virtual disk",
+                               existingDirectoryForPath(diskInput_->text()));
+            dialog.setOption(QFileDialog::DontUseNativeDialog);
+            dialog.setFileMode(QFileDialog::AnyFile);
+            dialog.setAcceptMode(QFileDialog::AcceptSave);
+            dialog.setNameFilter("QEMU virtual disks (*.qcow2)");
+            dialog.setDefaultSuffix("qcow2");
+            dialog.selectFile(QFileInfo(diskInput_->text()).fileName());
+            if (dialog.exec() != QDialog::Accepted || dialog.selectedFiles().isEmpty())
+                return;
+            const QString path = dialog.selectedFiles().first();
+            if (QFileInfo::exists(path)) {
+                QMessageBox::warning(this, "Disk already exists",
+                                     "Choose Select… to use an existing virtual disk, or choose "
+                                     "a different name to create a new disk.");
+                return;
             }
+            setDiskPath(QFileInfo(path).absoluteFilePath());
         });
         connect(startButton_, &QPushButton::clicked, this, [this] { createOrStartVm(); });
         connect(stopButton_, &QPushButton::clicked, this, [this] {
@@ -330,6 +369,17 @@ private:
         if (directory.isEmpty())
             directory = QDir::homePath();
         return QDir(directory).filePath("Virtual Machines/" + safeName + ".qcow2");
+    }
+
+    static QString existingDirectoryForPath(const QString &path) {
+        const QString directory = QFileInfo(path).absolutePath();
+        return QDir(directory).exists() ? directory : QDir::homePath();
+    }
+
+    void setDiskPath(const QString &path) {
+        diskPathTouched_ = true;
+        diskInput_->setText(path);
+        saveSettings();
     }
 
     void loadSettings() {

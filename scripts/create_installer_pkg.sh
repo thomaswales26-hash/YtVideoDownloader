@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP="$ROOT/build/VMStudio.app"
-PKG="$ROOT/build/VMStudio-1.0.pkg"
+PKG="$ROOT/build/VMStudio-1.0.1.pkg"
 
 if [[ ! -d "$APP" ]]; then
     echo "Build and package the app first; see README.md." >&2
@@ -15,7 +15,7 @@ pkgbuild \
     --component "$APP" \
     --install-location /Applications \
     --identifier com.example.vmstudio \
-    --version 1.0 \
+    --version 1.0.1 \
     --ownership recommended \
     "$PKG"
 
