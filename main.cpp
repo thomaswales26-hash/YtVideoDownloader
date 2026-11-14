@@ -110,6 +110,13 @@ public:
         tpmInput_->setChecked(true);
         form->addRow("", tpmInput_);
 
+        auto *tpmPerformanceNote = new QLabel(
+            "On Apple Silicon, ARM guests with TPM enabled use QEMU software emulation because "
+            "Apple's Hypervisor cannot run this TPM device. VM performance will be slower.");
+        tpmPerformanceNote->setWordWrap(true);
+        tpmPerformanceNote->setObjectName("note");
+        form->addRow("", tpmPerformanceNote);
+
         secureBootInput_ = new QCheckBox("Enable Secure Boot (Windows 11)");
         secureBootInput_->setChecked(true);
         form->addRow("", secureBootInput_);
@@ -697,7 +704,8 @@ private:
         setBusy(true);
         const QString architecture = architectureInput_->currentData().toString();
         const QString firmware = firmwarePath(architecture);
-        const bool useHypervisor = architecture == hostArchitecture();
+        const bool useHypervisor = architecture == hostArchitecture()
+            && !(architecture == "aarch64" && useTpm_);
         if (!useSecureBoot_ && firmware.isEmpty()) {
             setBusy(false);
             status_->setText("UEFI firmware not found");
@@ -732,6 +740,8 @@ private:
             arguments << "-bios" << firmware;
         }
         if (useTpm_) {
+            if (architecture == "aarch64" && !useHypervisor)
+                appendOutput("TPM 2.0 on ARM uses QEMU software emulation; VM performance will be slower.");
             const QString stateDirectory = diskPath_ + ".tpm";
             if (!QDir().mkpath(stateDirectory)) {
                 setBusy(false);
