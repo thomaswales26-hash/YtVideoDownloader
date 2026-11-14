@@ -111,6 +111,10 @@ public:
         bootInstallerInput_->setChecked(true);
         form->addRow("", bootInstallerInput_);
 
+        fullscreenInput_ = new QCheckBox("Start VM in full screen");
+        fullscreenInput_->setChecked(true);
+        form->addRow("", fullscreenInput_);
+
         tpmInput_ = new QCheckBox("Enable TPM 2.0 (Windows 11)");
         tpmInput_->setChecked(true);
         form->addRow("", tpmInput_);
@@ -240,6 +244,7 @@ public:
         connect(diskSizeInput_, &QSpinBox::valueChanged, this, [this] { saveSettings(); });
         connect(isoInput_, &QLineEdit::textChanged, this, [this] { saveSettings(); });
         connect(bootInstallerInput_, &QCheckBox::toggled, this, [this] { saveSettings(); });
+        connect(fullscreenInput_, &QCheckBox::toggled, this, [this] { saveSettings(); });
         connect(tpmInput_, &QCheckBox::toggled, this, [this] { saveSettings(); });
         connect(secureBootInput_, &QCheckBox::toggled, this, [this] {
             updateWindowsOptions();
@@ -527,6 +532,7 @@ private:
         architectureInput_->setCurrentIndex(architectureInput_->findData(architecture));
         isoInput_->setText(settings.value("machine/iso").toString());
         bootInstallerInput_->setChecked(settings.value("machine/bootInstaller", true).toBool());
+        fullscreenInput_->setChecked(settings.value("machine/fullscreen", true).toBool());
         diskInput_->setText(settings.value("machine/disk", diskInput_->text()).toString());
         diskPathTouched_ = settings.value("machine/diskTouched", false).toBool();
         diskSizeInput_->setValue(settings.value("machine/diskSize", 64).toInt());
@@ -545,6 +551,7 @@ private:
         settings.setValue("machine/architecture", architectureInput_->currentData());
         settings.setValue("machine/iso", isoInput_->text());
         settings.setValue("machine/bootInstaller", bootInstallerInput_->isChecked());
+        settings.setValue("machine/fullscreen", fullscreenInput_->isChecked());
         settings.setValue("machine/disk", diskInput_->text());
         settings.setValue("machine/diskTouched", diskPathTouched_);
         settings.setValue("machine/diskSize", diskSizeInput_->value());
@@ -829,7 +836,8 @@ private:
             "-cpu", useHypervisor ? "host" : "max",
             "-smp", QString::number(coresInput_->value()),
             "-m", QString("%1G").arg(memoryInput_->value()),
-            "-display", "cocoa",
+            "-display", fullscreenInput_->isChecked()
+                ? "cocoa,full-screen=on,zoom-to-fit=on" : "cocoa",
             "-drive", QString("if=none,id=systemdisk,format=qcow2,file=%1").arg(diskPath_),
             "-device", "nvme,drive=systemdisk,serial=vmstudio",
             "-netdev", "user,id=net0",
@@ -947,6 +955,7 @@ private:
         architectureInput_->setEnabled(!busy);
         isoInput_->setEnabled(!busy);
         bootInstallerInput_->setEnabled(!busy);
+        fullscreenInput_->setEnabled(!busy);
         tpmInput_->setEnabled(!busy && osInput_->currentData().toString() == "windows");
         secureBootInput_->setEnabled(!busy && osInput_->currentData().toString() == "windows");
         secureCodeInput_->setEnabled(!busy && osInput_->currentData().toString() == "windows"
@@ -961,6 +970,7 @@ private:
     QLineEdit *isoInput_ = nullptr;
     QLabel *installerArchitectureNote_ = nullptr;
     QCheckBox *bootInstallerInput_ = nullptr;
+    QCheckBox *fullscreenInput_ = nullptr;
     QCheckBox *tpmInput_ = nullptr;
     QCheckBox *secureBootInput_ = nullptr;
     QLineEdit *secureCodeInput_ = nullptr;
