@@ -212,6 +212,7 @@ public:
         layout->addWidget(output_);
 
         loadSettings();
+        updateGuestArchitectureForInstaller();
         updateWindowsOptions();
         connect(nameInput_, &QLineEdit::textChanged, this, [this](const QString &name) {
             if (!diskPathTouched_)
@@ -220,6 +221,7 @@ public:
         });
         connect(osInput_, &QComboBox::currentIndexChanged, this, [this](int index) {
             nameInput_->setText(index == 0 ? "My Linux VM" : "My Windows VM");
+            updateGuestArchitectureForInstaller();
             updateWindowsOptions();
             saveSettings();
         });
@@ -247,8 +249,10 @@ public:
             dialog.setFileMode(QFileDialog::ExistingFile);
             dialog.setAcceptMode(QFileDialog::AcceptOpen);
             dialog.setNameFilters({"ISO images (*.iso)", "All files (*)"});
-            if (dialog.exec() == QDialog::Accepted && !dialog.selectedFiles().isEmpty())
+            if (dialog.exec() == QDialog::Accepted && !dialog.selectedFiles().isEmpty()) {
                 isoInput_->setText(QFileInfo(dialog.selectedFiles().first()).absoluteFilePath());
+                updateGuestArchitectureForInstaller();
+            }
         });
         connect(chooseSecureCode, &QPushButton::clicked, this, [this] {
             QFileDialog dialog(this, "Choose Secure Boot-capable firmware code", QDir::homePath());
@@ -435,6 +439,43 @@ private:
         return QDir(directory).exists() ? directory : QDir::homePath();
     }
 
+    static QString detectInstallerArchitecture(const QString &path) {
+        QFile iso(path);
+        QByteArray volumeLabel;
+        if (iso.open(QIODevice::ReadOnly) && iso.seek(16 * 2048)) {
+            const QByteArray primaryVolumeDescriptor = iso.read(2048);
+            if (primaryVolumeDescriptor.size() == 2048
+                && primaryVolumeDescriptor.mid(1, 5) == "CD001") {
+                volumeLabel = primaryVolumeDescriptor.mid(40, 32);
+            }
+        }
+
+        const QString identity = QString::fromLatin1(volumeLabel) + " "
+            + QFileInfo(path).fileName();
+        if (identity.contains(QRegularExpression(
+                R"((ARM64|AARCH64|AA64))", QRegularExpression::CaseInsensitiveOption)))
+            return "aarch64";
+        if (identity.contains(QRegularExpression(
+                R"((X64|AMD64|X86[_-]?64))", QRegularExpression::CaseInsensitiveOption)))
+            return "x86_64";
+        return {};
+    }
+
+    void updateGuestArchitectureForInstaller() {
+        const QString detected = detectInstallerArchitecture(isoInput_->text());
+        if (detected.isEmpty() || architectureInput_->currentData().toString() == detected)
+            return;
+
+        architectureInput_->setCurrentIndex(architectureInput_->findData(detected));
+        saveSettings();
+        const QString label = detected == "aarch64" ? "ARM64" : "x86_64";
+        appendOutput(QString("Detected a %1 installer ISO and selected the matching %1 guest.")
+                         .arg(label));
+        if (detected == "x86_64" && hostArchitecture() == "aarch64")
+            appendOutput("x86_64 Windows will run under software emulation on Apple Silicon and may be very slow. "
+                         "Use an ARM64 Windows installer for better performance.");
+    }
+
     void setDiskPath(const QString &path) {
         diskPathTouched_ = true;
         diskInput_->setText(path);
@@ -511,6 +552,17 @@ private:
                 || iso.suffix().compare("iso", Qt::CaseInsensitive) != 0)) {
             QMessageBox::warning(this, "Choose an installer", "Select an existing .iso installer image.");
             return;
+        }
+        if (bootInstallerInput_->isChecked()) {
+            const QString detected = detectInstallerArchitecture(iso.absoluteFilePath());
+            if (!detected.isEmpty() && detected != architectureInput_->currentData().toString()) {
+                updateGuestArchitectureForInstaller();
+                QMessageBox::information(
+                    this, "Guest architecture updated",
+                    "The installer image architecture did not match the selected guest. "
+                    "VM Studio selected the matching architecture; select Create & Start again.");
+                return;
+            }
         }
         if (nameInput_->text().trimmed().isEmpty()) {
             QMessageBox::warning(this, "Name required", "Enter a name for this virtual machine.");
@@ -682,7 +734,8 @@ private:
     bool prepareSecureBootVariables() {
         if (!useSecureBoot_)
             return true;
-        const QString varsPath = diskPath_ + ".vars.fd";
+        const QString architecture = architectureInput_->currentData().toString();
+        const QString varsPath = diskPath_ + "." + architecture + ".vars.fd";
         const QFileInfo existing(varsPath);
         const QFileInfo varsTemplate(secureVarsTemplatePath_);
         if (existing.exists()) {
@@ -691,10 +744,20 @@ private:
                 status_->setText("Invalid Secure Boot variables");
                 return false;
             }
-        } else if (!QFile::copy(secureVarsTemplatePath_, varsPath)) {
-            appendOutput("Could not create persistent UEFI variables file: " + varsPath);
-            status_->setText("Could not initialize Secure Boot");
-            return false;
+        } else {
+            const QFileInfo legacyVars(diskPath_ + ".vars.fd");
+            if (legacyVars.isFile() && legacyVars.size() == varsTemplate.size()
+                && !QFile::copy(legacyVars.absoluteFilePath(), varsPath)) {
+                appendOutput("Could not migrate saved UEFI variables to the architecture-specific file.");
+                status_->setText("Could not preserve Secure Boot settings");
+                return false;
+            }
+            if (!QFileInfo::exists(varsPath)
+                && !QFile::copy(secureVarsTemplatePath_, varsPath)) {
+                appendOutput("Could not create persistent UEFI variables file: " + varsPath);
+                status_->setText("Could not initialize Secure Boot");
+                return false;
+            }
         }
         secureVarsPath_ = varsPath;
         return true;
