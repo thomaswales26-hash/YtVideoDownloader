@@ -2,6 +2,7 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QCoreApplication>
+#include <QDialog>
 #include <QDir>
 #include <QFileDialog>
 #include <QFile>
@@ -113,6 +114,32 @@ public:
         secureBootInput_->setChecked(true);
         form->addRow("", secureBootInput_);
 
+        auto *secureBootNote = new QLabel(
+            "Homebrew QEMU does not bundle UEFI firmware. Select matching Secure-Boot-capable "
+            "code and variables files for the guest architecture; the variables template must "
+            "have Microsoft keys enrolled for Windows.");
+        secureBootNote->setWordWrap(true);
+        secureBootNote->setObjectName("note");
+        form->addRow("", secureBootNote);
+
+        auto *secureCodeRow = new QHBoxLayout;
+        secureCodeInput_ = new QLineEdit;
+        secureCodeInput_->setPlaceholderText("Select Secure-Boot-capable firmware code");
+        secureCodeInput_->setReadOnly(true);
+        auto *chooseSecureCode = new QPushButton("Browse…");
+        secureCodeRow->addWidget(secureCodeInput_, 1);
+        secureCodeRow->addWidget(chooseSecureCode);
+        form->addRow("Secure Boot code", secureCodeRow);
+
+        auto *secureVarsRow = new QHBoxLayout;
+        secureVarsInput_ = new QLineEdit;
+        secureVarsInput_->setPlaceholderText("Select matching UEFI variables template");
+        secureVarsInput_->setReadOnly(true);
+        auto *chooseSecureVars = new QPushButton("Browse…");
+        secureVarsRow->addWidget(secureVarsInput_, 1);
+        secureVarsRow->addWidget(chooseSecureVars);
+        form->addRow("UEFI variables", secureVarsRow);
+
         auto *diskRow = new QHBoxLayout;
         diskInput_ = new QLineEdit(defaultDiskPath());
         auto *chooseDisk = new QPushButton("Select…");
@@ -198,7 +225,12 @@ public:
         connect(isoInput_, &QLineEdit::textChanged, this, [this] { saveSettings(); });
         connect(bootInstallerInput_, &QCheckBox::toggled, this, [this] { saveSettings(); });
         connect(tpmInput_, &QCheckBox::toggled, this, [this] { saveSettings(); });
-        connect(secureBootInput_, &QCheckBox::toggled, this, [this] { saveSettings(); });
+        connect(secureBootInput_, &QCheckBox::toggled, this, [this] {
+            updateWindowsOptions();
+            saveSettings();
+        });
+        connect(secureCodeInput_, &QLineEdit::textChanged, this, [this] { saveSettings(); });
+        connect(secureVarsInput_, &QLineEdit::textChanged, this, [this] { saveSettings(); });
         connect(diskInput_, &QLineEdit::textEdited, this, [this] {
             diskPathTouched_ = true;
             saveSettings();
@@ -211,6 +243,24 @@ public:
             dialog.setNameFilters({"ISO images (*.iso)", "All files (*)"});
             if (dialog.exec() == QDialog::Accepted && !dialog.selectedFiles().isEmpty())
                 isoInput_->setText(QFileInfo(dialog.selectedFiles().first()).absoluteFilePath());
+        });
+        connect(chooseSecureCode, &QPushButton::clicked, this, [this] {
+            QFileDialog dialog(this, "Choose Secure Boot-capable firmware code", QDir::homePath());
+            dialog.setOption(QFileDialog::DontUseNativeDialog);
+            dialog.setFileMode(QFileDialog::ExistingFile);
+            dialog.setNameFilter("UEFI firmware (*.fd *.bin);;All files (*)");
+            if (dialog.exec() == QDialog::Accepted && !dialog.selectedFiles().isEmpty())
+                secureCodeInput_->setText(
+                    QFileInfo(dialog.selectedFiles().first()).absoluteFilePath());
+        });
+        connect(chooseSecureVars, &QPushButton::clicked, this, [this] {
+            QFileDialog dialog(this, "Choose matching UEFI variables template", QDir::homePath());
+            dialog.setOption(QFileDialog::DontUseNativeDialog);
+            dialog.setFileMode(QFileDialog::ExistingFile);
+            dialog.setNameFilter("UEFI firmware (*.fd *.bin);;All files (*)");
+            if (dialog.exec() == QDialog::Accepted && !dialog.selectedFiles().isEmpty())
+                secureVarsInput_->setText(
+                    QFileInfo(dialog.selectedFiles().first()).absoluteFilePath());
         });
         connect(chooseDisk, &QPushButton::clicked, this, [this] {
             QFileDialog dialog(this, "Select existing virtual disk",
@@ -401,6 +451,8 @@ private:
         coresInput_->setValue(settings.value("machine/cores", 4).toInt());
         tpmInput_->setChecked(settings.value("machine/tpm", true).toBool());
         secureBootInput_->setChecked(settings.value("machine/secureBoot", true).toBool());
+        secureCodeInput_->setText(settings.value("machine/secureCode").toString());
+        secureVarsInput_->setText(settings.value("machine/secureVars").toString());
     }
 
     void saveSettings() const {
@@ -417,12 +469,16 @@ private:
         settings.setValue("machine/cores", coresInput_->value());
         settings.setValue("machine/tpm", tpmInput_->isChecked());
         settings.setValue("machine/secureBoot", secureBootInput_->isChecked());
+        settings.setValue("machine/secureCode", secureCodeInput_->text());
+        settings.setValue("machine/secureVars", secureVarsInput_->text());
     }
 
     void updateWindowsOptions() {
         const bool windows = osInput_->currentData().toString() == "windows";
         tpmInput_->setEnabled(windows);
         secureBootInput_->setEnabled(windows);
+        secureCodeInput_->setEnabled(windows && secureBootInput_->isChecked());
+        secureVarsInput_->setEnabled(windows && secureBootInput_->isChecked());
     }
 
     QString findTool(const QString &tool) const {
@@ -493,12 +549,34 @@ private:
             return;
         }
         if (useSecureBoot) {
-            const auto paths = secureBootFirmware(architecture);
+            const QString selectedCode = secureCodeInput_->text().trimmed();
+            const QString selectedVars = secureVarsInput_->text().trimmed();
+            if (selectedCode.isEmpty() != selectedVars.isEmpty()) {
+                QMessageBox::critical(
+                    this, "Select both firmware files",
+                    "Secure Boot needs both a Secure-Boot-capable UEFI code file and its matching "
+                    "variables template.");
+                return;
+            }
+            const auto paths = selectedCode.isEmpty()
+                ? secureBootFirmware(architecture)
+                : QPair<QString, QString>{selectedCode, selectedVars};
             if (paths.first.isEmpty()) {
                 QMessageBox::critical(
                     this, "Secure Boot firmware not found",
-                    "Could not find Secure Boot-capable UEFI firmware and a matching variable template. "
-                    "Install QEMU's EDK2/OVMF firmware files, then try again.");
+                    "Homebrew's QEMU package does not include UEFI firmware. Install matching "
+                    "Secure-Boot-capable firmware code and a variables template for the selected "
+                    "architecture, then choose both files in the Secure Boot fields.");
+                return;
+            }
+            const QFileInfo codeInfo(paths.first);
+            const QFileInfo varsInfo(paths.second);
+            if (!codeInfo.isReadable() || !varsInfo.isReadable()
+                || codeInfo.size() == 0 || codeInfo.size() != varsInfo.size()) {
+                QMessageBox::critical(
+                    this, "Invalid Secure Boot firmware",
+                    "The selected firmware code and variable template must both exist, be readable, "
+                    "and have matching non-zero sizes.");
                 return;
             }
             secureCodePath_ = paths.first;
@@ -626,7 +704,8 @@ private:
 
         QStringList arguments{
             "-name", nameInput_->text().trimmed(),
-            "-machine", architecture == "aarch64" ? "virt" : "q35",
+            "-machine", architecture == "aarch64"
+                ? "virt" : (useSecureBoot_ ? "q35,smm=on" : "q35"),
             "-accel", useHypervisor ? "hvf" : "tcg",
             "-cpu", useHypervisor ? "host" : "max",
             "-smp", QString::number(coresInput_->value()),
@@ -749,6 +828,10 @@ private:
         bootInstallerInput_->setEnabled(!busy);
         tpmInput_->setEnabled(!busy && osInput_->currentData().toString() == "windows");
         secureBootInput_->setEnabled(!busy && osInput_->currentData().toString() == "windows");
+        secureCodeInput_->setEnabled(!busy && osInput_->currentData().toString() == "windows"
+                                     && secureBootInput_->isChecked());
+        secureVarsInput_->setEnabled(!busy && osInput_->currentData().toString() == "windows"
+                                     && secureBootInput_->isChecked());
     }
 
     QLineEdit *nameInput_ = nullptr;
@@ -758,6 +841,8 @@ private:
     QCheckBox *bootInstallerInput_ = nullptr;
     QCheckBox *tpmInput_ = nullptr;
     QCheckBox *secureBootInput_ = nullptr;
+    QLineEdit *secureCodeInput_ = nullptr;
+    QLineEdit *secureVarsInput_ = nullptr;
     QLineEdit *diskInput_ = nullptr;
     QSpinBox *diskSizeInput_ = nullptr;
     QSpinBox *memoryInput_ = nullptr;

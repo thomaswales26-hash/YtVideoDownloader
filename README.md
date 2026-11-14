@@ -20,7 +20,7 @@ open build/VMStudio.app
 
 Choose an ISO, set the machine resources and disk capacity, then select **Create & Start**. For Windows, TPM 2.0 and Secure Boot are enabled by default and can be toggled in the machine settings. TPM state is saved beside the virtual disk; UEFI Secure Boot variables are copied from the installed firmware template once and persist beside the disk. The app opens QEMU's display in a separate window. Once the operating system is installed, uncheck **Boot from installer ISO** before starting the VM again.
 
-On Apple Silicon, ARM64 guests use Apple's Hypervisor framework; x86_64 guests use software emulation and will be slower. The guest ISO must match the selected architecture. Secure Boot requires matching Secure Boot-capable EDK2/OVMF firmware code and variable-template files from QEMU; the app reports an error if it cannot find them. Windows 11 still requires an installer and hardware configuration supported by the selected guest architecture.
+On Apple Silicon, ARM64 guests use Apple's Hypervisor framework; x86_64 guests use software emulation and will be slower. The guest ISO must match the selected architecture. Homebrew's QEMU package does not include UEFI firmware. For Secure Boot, provide matching Secure-Boot-capable UEFI code and variable-template files in the Secure Boot fields; the variables template must have Microsoft keys enrolled for Windows. These firmware files must match the guest architecture. Windows 11 still requires an installer and hardware configuration supported by the selected guest architecture.
 
 QEMU is discovered from `PATH`, `/opt/homebrew/bin`, or `/usr/local/bin` and is not bundled with the app. Installer ISOs and virtual disks are user-provided; make sure you have the right to use them and enough free host storage.
 
@@ -31,4 +31,4 @@ bash scripts/package_macos.sh
 bash scripts/create_installer_pkg.sh
 ```
 
-The installer is written to `build/VMStudio-1.0.2.pkg` and installs the app to `/Applications`. It is unsigned; distribution outside your own machine requires signing and notarization with an Apple Developer ID.
+The installer is written to `build/VMStudio-1.0.3.pkg` and installs the app to `/Applications`. It is unsigned; distribution outside your own machine requires signing and notarization with an Apple Developer ID.
